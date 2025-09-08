@@ -126,80 +126,7 @@ def render_equipment_tree_editor() -> None:
 
 
 def sidebar_controls() -> None:
-    st.sidebar.title("Configuration")
-
-    with st.sidebar.expander("Simulation Control", expanded=True):
-        st.session_state.TIME_STEP_SECONDS = st.number_input(
-            "Time Step (seconds)", min_value=1, value=int(st.session_state.TIME_STEP_SECONDS)
-        )
-        st.session_state.SIMULATION_DURATION_HOURS = st.number_input(
-            "Simulation Duration (hours)", min_value=0.1, value=float(st.session_state.SIMULATION_DURATION_HOURS)
-        )
-        st.session_state.SITE_TARGET_POWER_MW = st.number_input(
-            "Site Target Power (MW)", value=float(st.session_state.SITE_TARGET_POWER_MW)
-        )
-        st.session_state.RAMP_DURATION_SECONDS = st.number_input(
-            "Ramp Duration (s)", min_value=1, value=int(st.session_state.RAMP_DURATION_SECONDS)
-        )
-        st.session_state.CHARGE_TAPER_DURATION_SECONDS = st.number_input(
-            "Charge Taper Duration (s)", min_value=1, value=int(st.session_state.CHARGE_TAPER_DURATION_SECONDS)
-        )
-        st.session_state.DISCHARGE_TAPER_DURATION_SECONDS = st.number_input(
-            "Discharge Taper Duration (s)", min_value=1, value=int(st.session_state.DISCHARGE_TAPER_DURATION_SECONDS)
-        )
-        st.session_state.HEAT_SOAK_DURATION_HOURS = st.number_input(
-            "Heat Soak Duration (hours)", min_value=0.0, value=float(st.session_state.HEAT_SOAK_DURATION_HOURS)
-        )
-        st.session_state.SIM_START_DATETIME_UTC = st.text_input("Start DateTime UTC (ISO)", value=str(st.session_state.SIM_START_DATETIME_UTC))
-
-    with st.sidebar.expander("Environmental Conditions", expanded=False):
-        st.session_state.ENV_MODE = st.selectbox("Mode", options=["constant", "historical"], index=0 if st.session_state.ENV_MODE == 'constant' else 1)
-        if st.session_state.ENV_MODE == 'constant':
-            st.session_state.ENV_AMBIENT_T_C = st.number_input("Ambient Temperature (°C)", value=float(st.session_state.ENV_AMBIENT_T_C))
-            st.session_state.ENV_SOLAR_W_M2 = st.number_input("Solar Irradiance (W/m²)", value=float(st.session_state.ENV_SOLAR_W_M2))
-        else:
-            st.session_state.ENV_LOCATION_ADDRESS = st.text_input("Location (address)", value=str(st.session_state.ENV_LOCATION_ADDRESS))
-            st.session_state.ENV_PROVIDER_API_NAME = st.text_input("Provider API Name", value=str(st.session_state.ENV_PROVIDER_API_NAME))
-            st.session_state.ENV_PROVIDER_BASE_URL = st.text_input("Provider Base URL", value=str(st.session_state.ENV_PROVIDER_BASE_URL))
-
-    with st.sidebar.expander("Site Layout", expanded=True):
-        st.session_state.USE_STRUCTURED_WIRING = st.checkbox("Use structured wiring diagram (Step 2)", value=bool(st.session_state.USE_STRUCTURED_WIRING))
-        if st.session_state.USE_STRUCTURED_WIRING:
-            st.caption("Edit JSON for inverter_groups_config (list of {group_id, containers_in_group}).")
-            st.session_state.INVERTER_GROUPS_CONFIG_JSON = st.text_area("inverter_groups_config JSON", value=st.session_state.INVERTER_GROUPS_CONFIG_JSON, height=200)
-        else:
-            use_custom = st.checkbox("Use per-inverter container counts", value=bool(st.session_state.INVERTER_GROUP_CONTAINER_COUNTS))
-            if use_custom:
-                render_equipment_tree_editor()
-            else:
-                st.session_state.NUM_INVERTER_GROUPS = st.number_input("Number of inverter groups", min_value=1, value=int(st.session_state.NUM_INVERTER_GROUPS))
-                st.session_state.CONTAINERS_PER_GROUP = st.number_input("Containers per group", min_value=1, value=int(st.session_state.CONTAINERS_PER_GROUP))
-
-    with st.sidebar.expander("BMS & Balancing", expanded=False):
-        st.session_state.L2_CALIBRATE_LOW_VOLTAGE = st.slider("L2 Calibrate Low Voltage (V)", 2.5, 3.2, float(st.session_state.L2_CALIBRATE_LOW_VOLTAGE))
-        st.session_state.L2_CUTOFF_LOW_VOLTAGE = st.slider("L2 Cutoff Low Voltage (V)", 2.5, 3.2, float(st.session_state.L2_CUTOFF_LOW_VOLTAGE))
-        st.session_state.L2_CALIBRATE_HIGH_VOLTAGE = st.slider("L2 Calibrate High Voltage (V)", 3.3, 3.6, float(st.session_state.L2_CALIBRATE_HIGH_VOLTAGE))
-        st.session_state.L2_CUTOFF_HIGH_VOLTAGE = st.slider("L2 Cutoff High Voltage (V)", 3.4, 3.8, float(st.session_state.L2_CUTOFF_HIGH_VOLTAGE))
-        st.session_state.BALANCING_TOP_SOC_START = st.slider("Top balancing starts at SOC (%)", 90.0, 100.0, float(st.session_state.BALANCING_TOP_SOC_START))
-        st.session_state.BALANCING_BOTTOM_SOC_END = st.slider("Bottom balancing ends at SOC (%)", 0.0, 10.0, float(st.session_state.BALANCING_BOTTOM_SOC_END))
-        st.session_state.BALANCING_BLEED_CURRENT_A = st.number_input("Balancing Bleed Current (A)", value=float(st.session_state.BALANCING_BLEED_CURRENT_A))
-
-    with st.sidebar.expander("Initial SOC Distribution", expanded=False):
-        st.session_state.INITIAL_SOC_MEDIAN_PERCENT = st.number_input("Initial Median SOC (%)", value=float(st.session_state.INITIAL_SOC_MEDIAN_PERCENT))
-        st.session_state.INITIAL_SOC_MIN_PERCENT = st.number_input("Initial Minimum SOC (%)", value=float(st.session_state.INITIAL_SOC_MIN_PERCENT))
-        st.session_state.INITIAL_SOC_STD_PERCENT = st.number_input("Initial SOC StdDev (%)", value=float(st.session_state.INITIAL_SOC_STD_PERCENT))
-        st.session_state.INITIAL_SOC_FRACTION_AT_FLOOR = st.slider("% of Cells at Min SOC", 0, 100, int(st.session_state.INITIAL_SOC_FRACTION_AT_FLOOR * 100)) / 100.0
-
-    with st.sidebar.expander("Initial State (SIMULATION_CONFIG)", expanded=False):
-        st.session_state.INIT_SOC_DIST_TYPE = st.selectbox("SOC Distribution Type", options=["uniform", "normal"], index=1 if st.session_state.INIT_SOC_DIST_TYPE == 'normal' else 0)
-        st.session_state.INIT_SOC_MEAN = st.number_input("SOC Mean (%)", value=float(st.session_state.INIT_SOC_MEAN))
-        st.session_state.INIT_SOC_STD = st.number_input("SOC StdDev (%)", min_value=0.0, value=float(st.session_state.INIT_SOC_STD))
-        st.session_state.INIT_CELL_TEMP_C = st.number_input("Cell Temperature (°C)", value=float(st.session_state.INIT_CELL_TEMP_C))
-
-    with st.sidebar.expander("Test Sequence (Step 4)", expanded=False):
-        st.session_state.USE_TEST_SEQUENCE = st.checkbox("Use test_sequence (overrides built-in test state machine)", value=bool(st.session_state.USE_TEST_SEQUENCE))
-        st.caption("Edit JSON array of steps. Only 'real_power_mw' affects power currently; negative=charge, positive=discharge.")
-        st.session_state.TEST_SEQUENCE_JSON = st.text_area("test_sequence JSON", value=st.session_state.TEST_SEQUENCE_JSON, height=200)
+    st.sidebar.title("Run")
 
     st.sidebar.markdown("---")
     col1, col2 = st.sidebar.columns(2)
@@ -217,7 +144,7 @@ def sidebar_controls() -> None:
         config.DISCHARGE_TAPER_DURATION_SECONDS = int(st.session_state.DISCHARGE_TAPER_DURATION_SECONDS)
         config.HEAT_SOAK_DURATION_HOURS = float(st.session_state.HEAT_SOAK_DURATION_HOURS)
 
-        # SIMULATION_CONFIG assembly
+        # SIMULATION_CONFIG assembly from session state populated on pages
         sim_cfg = getattr(config, 'SIMULATION_CONFIG', {}) or {}
         sim_cfg['simulation_control'] = {
             'start_datetime_utc': st.session_state.SIM_START_DATETIME_UTC or None,
@@ -245,6 +172,13 @@ def sidebar_controls() -> None:
             'soc_std_dev_percent': float(st.session_state.INIT_SOC_STD),
             'cell_temperatures_c': float(st.session_state.INIT_CELL_TEMP_C),
         }
+        # Equipment specs (Step 1)
+        if 'EQUIPMENT_SPECS_JSON' in st.session_state:
+            try:
+                sim_cfg['equipment_specs'] = json.loads(st.session_state.EQUIPMENT_SPECS_JSON) if st.session_state.EQUIPMENT_SPECS_JSON.strip() else {}
+            except Exception as exc:
+                st.warning(f"Invalid equipment specs JSON, ignoring. Details: {exc}")
+                sim_cfg['equipment_specs'] = {}
         # Test sequence parsing
         if bool(st.session_state.USE_TEST_SEQUENCE):
             try:
