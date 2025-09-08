@@ -52,6 +52,47 @@ def init_session_state() -> None:
     st.session_state.progress = 0.0
 
 
+def render_equipment_tree_editor() -> None:
+    """Interactive editor for inverter -> batteries (containers) tree.
+
+    Uses st.session_state.INVERTER_GROUP_CONTAINER_COUNTS as the backing model.
+    """
+    if not isinstance(st.session_state.INVERTER_GROUP_CONTAINER_COUNTS, list):
+        st.session_state.INVERTER_GROUP_CONTAINER_COUNTS = []
+
+    counts = [int(c) for c in st.session_state.INVERTER_GROUP_CONTAINER_COUNTS]
+
+    # Totals
+    total_inverters = len(counts)
+    total_batteries = sum(counts) if counts else 0
+    m1, m2 = st.columns(2)
+    m1.metric("Total Inverters", total_inverters)
+    m2.metric("Total Batteries", total_batteries)
+
+    # Add inverter button
+    if st.button("+ Add Inverter", key="btn_add_inverter"):
+        counts.append(0)
+
+    # Per-inverter controls
+    remove_index = None
+    for idx, value in enumerate(counts):
+        with st.expander(f"Inverter {idx + 1}", expanded=False):
+            row = st.columns([1.5, 1, 1, 1])
+            row[0].write(f"Batteries: {int(value)}")
+            if row[1].button("+ Add Battery", key=f"btn_add_battery_{idx}"):
+                counts[idx] = int(counts[idx]) + 1
+            if row[2].button("- Remove Battery", key=f"btn_rem_battery_{idx}"):
+                counts[idx] = max(0, int(counts[idx]) - 1)
+            if row[3].button("Remove Inverter", key=f"btn_remove_inverter_{idx}"):
+                remove_index = idx
+
+    if remove_index is not None and 0 <= remove_index < len(counts):
+        counts.pop(remove_index)
+
+    # Persist back
+    st.session_state.INVERTER_GROUP_CONTAINER_COUNTS = counts
+
+
 def sidebar_controls() -> None:
     st.sidebar.title("Configuration")
 
@@ -81,14 +122,7 @@ def sidebar_controls() -> None:
     with st.sidebar.expander("Site Layout", expanded=True):
         use_custom = st.checkbox("Use per-inverter container counts", value=bool(st.session_state.INVERTER_GROUP_CONTAINER_COUNTS))
         if use_custom:
-            counts_str = st.text_input(
-                "Counts per inverter (comma-separated)",
-                value=','.join(str(int(c)) for c in (st.session_state.INVERTER_GROUP_CONTAINER_COUNTS or []))
-            )
-            try:
-                st.session_state.INVERTER_GROUP_CONTAINER_COUNTS = [int(x.strip()) for x in counts_str.split(',') if x.strip()]
-            except Exception:
-                st.warning("Invalid counts. Please provide integers separated by commas.")
+            render_equipment_tree_editor()
         else:
             st.session_state.NUM_INVERTER_GROUPS = st.number_input("Number of inverter groups", min_value=1, value=int(st.session_state.NUM_INVERTER_GROUPS))
             st.session_state.CONTAINERS_PER_GROUP = st.number_input("Containers per group", min_value=1, value=int(st.session_state.CONTAINERS_PER_GROUP))
