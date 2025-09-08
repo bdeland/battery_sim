@@ -16,6 +16,59 @@ SIMULATION_DURATION_HOURS = 10  # Duration of the run
 # Convenience derived value
 TOTAL_STEPS = int(SIMULATION_DURATION_HOURS * 3600 / TIME_STEP_SECONDS)
 
+# Optional structured configuration based on docs/improvements.md (Steps 3 and 4)
+SIMULATION_CONFIG = {
+    'simulation_control': {
+        'start_datetime_utc': None,
+        'duration_hours': SIMULATION_DURATION_HOURS,
+        'time_step_seconds': TIME_STEP_SECONDS,
+    },
+    'environmental_conditions': {
+        'mode': 'constant',
+        'ambient_temperature_c': 35.0,
+        'solar_irradiance_w_per_m2': 800.0,
+        # Historical mode example shape (not active by default)
+        'location': None,
+        'historical_data_provider': None,
+    },
+    'bess_initial_state': {
+        'soc_distribution_type': 'normal',  # 'uniform' | 'normal'
+        'soc_mean_percent': 8.0,
+        'soc_std_dev_percent': 1.5,
+        'cell_temperatures_c': 25.0,
+    },
+    'test_sequence': [
+        # Example default sequence matching the existing state machine semantics
+        # Charge ramp and hold implied by explicit durations here
+        {
+            'step_name': 'Charge',
+            'duration_minutes': 60,
+            'power_command': {
+                'command_type': 'real',
+                'real_power_mw': 40.0
+            },
+            # optional taper example; interpreter will ignore if missing
+            'taper_settings': {
+                'start_soc_percent': 98.0,
+                'end_power_mw': 0.0
+            }
+        },
+        {
+            'step_name': 'Heat Soak',
+            'duration_hours': 2.0,
+            'power_command': {'command_type': 'idle'}
+        },
+        {
+            'step_name': 'Discharge',
+            'duration_minutes': 60,
+            'power_command': {
+                'command_type': 'real',
+                'real_power_mw': -40.0
+            }
+        }
+    ]
+}
+
 # -------------------------------
 # Layout configuration
 # -------------------------------
@@ -100,5 +153,27 @@ INITIALIZE_ALL_MIN_SOC = False
 BALANCING_TOP_SOC_START = 94.0
 BALANCING_BOTTOM_SOC_END = 6.0
 BALANCING_BLEED_CURRENT_A = 0.6  # small per-cell bleed current
+
+
+# Apply SIMULATION_CONFIG to legacy globals for backward compatibility
+def _apply_simulation_config() -> None:
+    global TIME_STEP_SECONDS, SIMULATION_DURATION_HOURS, TOTAL_STEPS
+    global AMBIENT_TEMPERATURE_C
+
+    try:
+        sim_ctrl = SIMULATION_CONFIG.get('simulation_control') or {}
+        TIME_STEP_SECONDS = int(sim_ctrl.get('time_step_seconds', TIME_STEP_SECONDS))
+        SIMULATION_DURATION_HOURS = float(sim_ctrl.get('duration_hours', SIMULATION_DURATION_HOURS))
+        TOTAL_STEPS = int(SIMULATION_DURATION_HOURS * 3600 / max(1, TIME_STEP_SECONDS))
+
+        env = SIMULATION_CONFIG.get('environmental_conditions') or {}
+        if (env.get('mode') or 'constant') == 'constant':
+            AMBIENT_TEMPERATURE_C = float(env.get('ambient_temperature_c', AMBIENT_TEMPERATURE_C))
+    except Exception:
+        # Fail-safe: keep legacy defaults if SIMULATION_CONFIG is malformed
+        pass
+
+
+_apply_simulation_config()
 
 

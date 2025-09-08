@@ -26,17 +26,30 @@ from simulation_objects import (
 def initialize_simulation() -> BESS_Site:
     """Build the full site object graph using generic, config-driven layout."""
     groups: List[InverterGroup] = []
-    per_group_counts = getattr(config, 'INVERTER_GROUP_CONTAINER_COUNTS', []) or []
-    if per_group_counts:
-        for g, count in enumerate(per_group_counts):
-            containers = [BatteryContainer(id=f"G{g+1}C{c+1}") for c in range(int(count))]
-            groups.append(InverterGroup(id=f"G{g+1}", containers=containers))
+    sim_cfg = getattr(config, 'SIMULATION_CONFIG', {}) or {}
+    ig_cfg = sim_cfg.get('inverter_groups_config') or []
+    if isinstance(ig_cfg, list) and ig_cfg:
+        for g, gdef in enumerate(ig_cfg):
+            containers_in_group = gdef.get('containers_in_group') or []
+            containers: List[BatteryContainer] = []
+            if containers_in_group:
+                for cid in containers_in_group:
+                    containers.append(BatteryContainer(id=str(cid)))
+            else:
+                containers = [BatteryContainer(id=f"G{g+1}C1")]
+            groups.append(InverterGroup(id=str(gdef.get('group_id', f"G{g+1}")), containers=containers))
     else:
-        num_groups = int(getattr(config, 'NUM_INVERTER_GROUPS', 2))
-        containers_per_group = int(getattr(config, 'CONTAINERS_PER_GROUP', 2))
-        for g in range(num_groups):
-            containers = [BatteryContainer(id=f"G{g+1}C{c+1}") for c in range(containers_per_group)]
-            groups.append(InverterGroup(id=f"G{g+1}", containers=containers))
+        per_group_counts = getattr(config, 'INVERTER_GROUP_CONTAINER_COUNTS', []) or []
+        if per_group_counts:
+            for g, count in enumerate(per_group_counts):
+                containers = [BatteryContainer(id=f"G{g+1}C{c+1}") for c in range(int(count))]
+                groups.append(InverterGroup(id=f"G{g+1}", containers=containers))
+        else:
+            num_groups = int(getattr(config, 'NUM_INVERTER_GROUPS', 2))
+            containers_per_group = int(getattr(config, 'CONTAINERS_PER_GROUP', 2))
+            for g in range(num_groups):
+                containers = [BatteryContainer(id=f"G{g+1}C{c+1}") for c in range(containers_per_group)]
+                groups.append(InverterGroup(id=f"G{g+1}", containers=containers))
     return BESS_Site(inverter_groups=groups)
 
 

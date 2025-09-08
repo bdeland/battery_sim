@@ -106,30 +106,49 @@ class BatteryPack:
         else:
             # Initialize arrays directly with realistic distribution
             n = self.num_cells
-            initialize_all_min = getattr(config, 'INITIALIZE_ALL_MIN_SOC', False)
-            if initialize_all_min:
-                self.cell_soc = np.full(n, config.MIN_SAFE_SOC, dtype=float)
-            else:
-                floor_fraction = float(max(0.0, min(1.0, getattr(config, 'INITIAL_SOC_FRACTION_AT_FLOOR', 0.4))))
-                floor_count = int(round(n * floor_fraction))
-                remaining = max(0, n - floor_count)
-                loc = float(getattr(config, 'INITIAL_SOC_MEDIAN_PERCENT', 6.6))
-                scale = float(max(1e-6, getattr(config, 'INITIAL_SOC_STD_PERCENT', 1.2)))
-                low = float(getattr(config, 'INITIAL_SOC_MIN_PERCENT', config.MIN_SAFE_SOC))
-                high = float(getattr(config, 'INITIAL_SOC_MAX_PERCENT', 12.0))
-                samples = np.random.normal(loc=loc, scale=scale, size=remaining).astype(float)
-                samples = np.clip(samples, low, high)
-                if floor_count > 0:
-                    floor_arr = np.full(floor_count, config.MIN_SAFE_SOC, dtype=float)
-                    self.cell_soc = np.concatenate([floor_arr, samples])
+            initial_state = (getattr(config, 'SIMULATION_CONFIG', {}) or {}).get('bess_initial_state') or {}
+            if initial_state:
+                dist_type = str(initial_state.get('soc_distribution_type', 'normal')).lower()
+                mean = float(initial_state.get('soc_mean_percent', 8.0))
+                std = float(max(1e-6, float(initial_state.get('soc_std_dev_percent', 1.5))))
+                if dist_type == 'uniform':
+                    self.cell_soc = np.full(n, np.clip(mean, 0.0, 100.0), dtype=float)
                 else:
-                    self.cell_soc = samples
-                # Shuffle to avoid ordered groups
-                if self.cell_soc.size:
-                    rng = np.random.default_rng()
-                    rng.shuffle(self.cell_soc)
+                    samples = np.random.normal(loc=mean, scale=std, size=n).astype(float)
+                    self.cell_soc = np.clip(samples, config.MIN_SAFE_SOC, 100.0)
+            else:
+                initialize_all_min = getattr(config, 'INITIALIZE_ALL_MIN_SOC', False)
+                if initialize_all_min:
+                    self.cell_soc = np.full(n, config.MIN_SAFE_SOC, dtype=float)
+                else:
+                    floor_fraction = float(max(0.0, min(1.0, getattr(config, 'INITIAL_SOC_FRACTION_AT_FLOOR', 0.4))))
+                    floor_count = int(round(n * floor_fraction))
+                    remaining = max(0, n - floor_count)
+                    loc = float(getattr(config, 'INITIAL_SOC_MEDIAN_PERCENT', 6.6))
+                    scale = float(max(1e-6, getattr(config, 'INITIAL_SOC_STD_PERCENT', 1.2)))
+                    low = float(getattr(config, 'INITIAL_SOC_MIN_PERCENT', config.MIN_SAFE_SOC))
+                    high = float(getattr(config, 'INITIAL_SOC_MAX_PERCENT', 12.0))
+                    samples = np.random.normal(loc=loc, scale=scale, size=remaining).astype(float)
+                    samples = np.clip(samples, low, high)
+                    if floor_count > 0:
+                        floor_arr = np.full(floor_count, config.MIN_SAFE_SOC, dtype=float)
+                        self.cell_soc = np.concatenate([floor_arr, samples])
+                    else:
+                        self.cell_soc = samples
+                    # Shuffle to avoid ordered groups
+                    if self.cell_soc.size:
+                        rng = np.random.default_rng()
+                        rng.shuffle(self.cell_soc)
             self.cell_voltage = interpolate_voltage_from_soc_vectorized(self.cell_soc)
-            self.cell_temperature = np.full(n, config.AMBIENT_TEMPERATURE_C, dtype=float)
+            init_temp = None
+            if initial_state:
+                try:
+                    init_temp = float(initial_state.get('cell_temperatures_c'))
+                except Exception:
+                    init_temp = None
+            if init_temp is None:
+                init_temp = float(getattr(config, 'AMBIENT_TEMPERATURE_C', 25.0))
+            self.cell_temperature = np.full(n, init_temp, dtype=float)
             self.cell_current = np.zeros(n, dtype=float)
 
         # Initialize cached average SOC
@@ -390,6 +409,24 @@ class BESS_Site:
     test_state: str = 'IDLE'
     state_time_s: int = 0
     current_site_power_target_mw: float = 0.0
+    # Optional sequence interpreter state
+    _sequence_enabled: bool = field(default=False, init=False, repr=False)
+    _sequence: List[dict] = field(default_factory=list, init=False, repr=False)
+    _seq_index: int = field(default=0, init=False, repr=False)
+    _seq_elapsed_s: int = field(default=0, init=False, repr=False)
+
+    def __post_init__(self) -> None:
+        try:
+            seq = (getattr(config, 'SIMULATION_CONFIG', {}) or {}).get('test_sequence') or []
+            if isinstance(seq, list) and len(seq) > 0:
+                self._sequence_enabled = True
+                self._sequence = seq
+                self.test_state = 'SEQUENCE'
+                self.state_time_s = 0
+                self._seq_index = 0
+                self._seq_elapsed_s = 0
+        except Exception:
+            self._sequence_enabled = False
 
     def any_container_soc_at_or_above(self, threshold_percent: float) -> bool:
         for group in self.inverter_groups:
@@ -406,6 +443,9 @@ class BESS_Site:
         return False
 
     def update_test_state(self, time_step_s: float) -> None:
+        if self._sequence_enabled:
+            self._update_by_sequence(time_step_s)
+            return
         # Full test cycle state machine
         if self.test_state == 'IDLE':
             self.test_state = 'INIT'
@@ -474,6 +514,50 @@ class BESS_Site:
             self.current_site_power_target_mw = 0.0
 
         self.state_time_s += time_step_s
+
+    def _update_by_sequence(self, time_step_s: int) -> None:
+        if self._seq_index >= len(self._sequence):
+            self.test_state = 'DONE'
+            self.current_site_power_target_mw = 0.0
+            return
+        step = self._sequence[self._seq_index]
+        # Determine duration in seconds
+        dur_s = 0
+        if 'duration_seconds' in step:
+            dur_s = int(step.get('duration_seconds', 0))
+        elif 'duration_minutes' in step:
+            dur_s = int(float(step.get('duration_minutes', 0.0)) * 60)
+        elif 'duration_hours' in step:
+            dur_s = int(float(step.get('duration_hours', 0.0)) * 3600)
+        dur_s = max(0, dur_s)
+
+        # Determine power command (only real power used here)
+        cmd = step.get('power_command') or {}
+        cmd_type = str(cmd.get('command_type', 'idle')).lower()
+        if cmd_type == 'idle':
+            target_mw = 0.0
+        else:
+            real_mw = float(cmd.get('real_power_mw', 0.0))
+            # Map external convention (negative for charge) to internal (positive for charge)
+            target_mw = -real_mw
+
+        # Apply simple linear taper if taper_settings present and duration > 0
+        taper = step.get('taper_settings') or None
+        if taper and dur_s > 0:
+            try:
+                end_power_mw = float(taper.get('end_power_mw', target_mw))
+                frac = min(1.0, max(0.0, self._seq_elapsed_s / max(1, dur_s)))
+                target_mw = (1.0 - frac) * target_mw + frac * end_power_mw
+            except Exception:
+                pass
+
+        self.current_site_power_target_mw = target_mw
+        self.state_time_s = self._seq_elapsed_s
+        self.test_state = step.get('step_name', 'SEQUENCE')
+        self._seq_elapsed_s += time_step_s
+        if self._seq_elapsed_s >= dur_s:
+            self._seq_index += 1
+            self._seq_elapsed_s = 0
 
     def get_site_target_power(self) -> float:
         return self.current_site_power_target_mw
